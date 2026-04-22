@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>機密代號：海量詞庫同步版</title>
+    <style>
+        :root {
+            --bg-color: #12122b;
+            --header-bg: #1a1a3c;
+            --card-bg: #f5f5f5;
+            --red: #ff4d4d;
+            --blue: #3867ff;
+            --neutral: #d2b48c;
+            --assassin: #2d3436;
+        }
+
+        body { 
+            background-color: var(--bg-color); 
+            color: white; 
+            font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; 
+            margin: 0; 
+            text-align: center;
+        }
+
+        #header { padding: 15px; background: var(--header-bg); border-bottom: 2px solid #2a2a5a; position: sticky; top: 0; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        
+        /* 回合與計分 */
+        #turn-indicator {
+            display: inline-block;
+            padding: 10px 40px;
+            border-radius: 50px;
+            font-size: 1.4rem;
+            font-weight: bold;
+            margin: 5px 0;
+            transition: 0.4s ease;
+        }
+        .turn-red { background-color: var(--red); box-shadow: 0 0 15px var(--red); }
+        .turn-blue { background-color: var(--blue); box-shadow: 0 0 15px var(--blue); }
+
+        .score-board { font-size: 1rem; margin-bottom: 10px; letter-spacing: 1px; }
+        .score-red { color: var(--red); font-weight: bold; }
+        .score-blue { color: var(--blue); font-weight: bold; }
+
+        /* 提示區域 */
+        #clue-area {
+            background: rgba(255,255,255,0.08);
+            padding: 12px;
+            margin: 5px auto;
+            max-width: 650px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .clue-display { font-size: 1.1rem; color: #f1c40f; font-weight: bold; }
+        input { padding: 8px; border-radius: 4px; border: none; margin: 0 4px; outline: none; }
+
+        .controls button { 
+            padding: 8px 16px; font-size: 0.85rem; font-weight: bold;
+            cursor: pointer; border: none; border-radius: 6px; margin: 4px;
+            transition: 0.2s;
+        }
+        .btn-new { background: #00cec9; color: #000; }
+        .btn-master { background: #f1c40f; color: #000; }
+        .btn-end { background: #dfe6e9; color: #000; }
+        button:hover { filter: brightness(1.2); }
+
+        /* 棋盤 */
+        .grid { 
+            display: grid; 
+            grid-template-columns: repeat(5, 1fr); 
+            gap: 12px; 
+            max-width: 950px; 
+            margin: 10px auto; 
+            padding: 15px;
+        }
+
+        .card { 
+            height: 85px; 
+            background: var(--card-bg); 
+            color: #2d3436; 
+            border-radius: 8px;
+            display: flex; 
+            align-items: center; 
+            justify-content: center;
+            font-weight: 800; 
+            cursor: pointer; 
+            font-size: 1.2rem;
+            box-shadow: 0 4px 0px rgba(0,0,0,0.2);
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .card:hover:not(.flipped) { transform: translateY(-3px); box-shadow: 0 6px 12px rgba(0,0,0,0.4); }
+
+        .card.red { background: var(--red) !important; color: white; }
+        .card.blue { background: var(--blue) !important; color: white; }
+        .card.neutral { background: var(--neutral) !important; color: #444; }
+        .card.assassin { background: var(--assassin) !important; color: white; }
+        .card.flipped { transform: scale(0.96); opacity: 0.85; box-shadow: none; cursor: default; }
+
+        /* 隊長視圖 */
+        #masterOverlay {
+            display: none; position: fixed; top: 0; left: 0; 
+            width: 100%; height: 100%; background: rgba(10,10,25,0.98); 
+            z-index: 9999; flex-direction: column; align-items: center; justify-content: center;
+        }
+    </style>
+</head>
+<body>
+
+<div id="header">
+    <div id="turn-indicator" class="turn-red">請開始遊戲</div>
+    
+    <div class="score-board">
+        紅方剩餘: <span id="red-count" class="score-red">0</span> | 
+        藍方剩餘: <span id="blue-count" class="score-blue">0</span>
+    </div>
+
+    <div id="clue-area">
+        <div id="clue-input-group">
+            提示：<input type="text" id="input-word" placeholder="提示詞" style="width:90px">
+            數量：<input type="number" id="input-num" value="1" min="0" max="9" style="width:45px">
+            <button onclick="setClue()" style="background:#2ecc71; color:white; border-radius:4px; padding:7px 12px; cursor:pointer; border:none;">確認</button>
+        </div>
+        <div id="clue-status" class="clue-display" style="display:none">
+            提示：<span id="display-word"></span> | 剩餘猜測：<span id="display-num"></span> 次
+        </div>
+    </div>
+
+    <div class="controls">
+        <button class="btn-new" onclick="initNewGame()">開啟新局</button>
+        <button class="btn-end" onclick="manualEndTurn()">結束回合</button>
+        <button class="btn-master" onclick="openMasterView()">隊長秘密視圖</button>
+    </div>
+</div>
+
+<div class="grid" id="board"></div>
+
+<div id="masterOverlay">
+    <h2 style="color: #f1c40f;">隊長密報盤面 (隊員請避開)</h2>
+    <div class="grid" id="masterBoard" style="width:100%; transform:scale(0.85)"></div>
+    <button onclick="closeMasterView()" style="background:#e17055; color:white; padding:15px 60px; border:none; border-radius:8px; cursor:pointer; font-weight:bold;">返回遊戲</button>
+</div>
+
+<script>
+    // --- 龐大的資料庫（400+ 詞彙） ---
+    const WORDS_POOL = [
+        "蘋果", "火車", "塔", "律師", "南極", "草莓", "恐龍", "跳水", "月亮", "森林", "手機", "東京", "蝙蝠", "醫生", "橋", "鋼琴", "巧克力", "大象", "沙漠", "太陽", "相機", "足球", "戒指", "海盜", "漢堡", "國王", "公主", "地圖", "飛機", "輪船", "潛水", "醫院", "警察", "老師", "幽靈", "密碼", "雷達", "冰山", "火山", "森林", "眼睛", "書本", "鑰匙", "吉他", "電腦", "手錶", "牙刷", "梯子", "遙控器", "筆記本", "指南針", "雨傘", "口罩", "耳機", "手電筒", "望遠鏡", "打火機", "信封", "剪刀", "印章", "膠帶", "鬧鐘", "羅盤", "壽司", "披薩", "甜甜圈", "珍珠奶茶", "牛排", "冰淇淋", "爆米花", "三明治", "紅酒", "馬卡龍", "火鍋", "芒果", "蜂蜜", "布丁", "起司", "吐司", "企鵝", "海豚", "袋鼠", "蝴蝶", "貓頭鷹", "蜜蜂", "長頸鹿", "北極熊", "章魚", "變色龍", "河馬", "仙人掌", "瀑布", "彩虹", "消防員", "機長", "廚師", "忍者", "間諜", "科學家", "教練", "太空人", "農夫", "木工", "法官", "偵探", "保全", "牙醫", "藝術家", "魔術師", "紐約", "學校", "監獄", "圖書館", "電影院", "機場", "體育館", "遊樂園", "健身房", "銀行", "寺廟", "城堡", "燈塔", "回憶", "夢境", "陰影", "噪音", "運氣", "重力", "靈魂", "奇蹟", "時間", "秘密", "旋律", "陷阱", "冠軍", "任務", "秩序", "混沌", "小提琴", "籃球", "衝浪", "滑板", "腳踏車", "直升機", "潛水艇", "火箭", "原子", "黑洞", "氧氣", "金屬", "鏡子", "鑽石", "廢鐵", "垃圾桶", "膠水", "噴泉", "火花", "地鐵", "高速公路", "太空站", "衛星", "基因", "化石", "木乃伊", "法老", "金字塔", "長城", "艾菲爾鐵塔", "大笨鐘", "鬥獸場", "自由女神", "奧運", "世界盃", "馬拉松", "西洋棋", "撲克牌", "骰子", "麻將", "電梯", "自動販賣機", "加油站", "紅綠燈", "斑馬線", "天橋", "隧道", "大峽谷", "亞馬遜", "喜馬拉雅", "太平洋", "撒哈拉", "百慕達", "黑手黨", "保鑣", "記者", "模特兒", "導演", "作曲家", "發明家", "哲學家", "歷史學家", "天文學家", "考古學家", "心理學家", "工程師", "設計師", "軟體", "硬體", "雲端", "區塊鏈", "人工智慧", "機器人", "無人機", "導航", "藍牙", "觸控板", "鍵盤", "螢幕", "充電線", "行動電源", "路由器", "攝影機", "麥克風", "揚聲器", "投影機", "影印機", "碎紙機", "釘書機", "迴紋針", "資料夾", "名片", "日曆", "地球儀", "顯微鏡", "燒杯", "試管", "天平", "溫度計", "氣壓計", "聽診器", "手術刀", "石膏", "輪椅", "擔架", "救護車", "警車", "郵覽車", "垃圾車", "拖拉機", "帆船", "獨木舟", "熱氣球", "滑翔翼", "降落傘", "蹦極", "攀岩", "滑雪", "擊劍", "拳擊", "柔道", "空手道", "瑜珈", "冥想", "催眠", "透視", "預言", "瞬移", "隱身", "飛行", "怪力", "長生不老", "吸血鬼", "狼人", "殭屍", "精靈", "矮人", "巨龍", "獨角獸", "鳳凰", "美人魚", "美杜莎", "海妖", "半人馬", "獅身人面", "地獄犬", "雷神", "戰神", "愛神", "死神", "太陽神", "雅典娜", "波塞頓", "宙斯", "奧丁", "雷神之鎚", "草薙劍", "聖杯", "潘朵拉盒子", "阿基里斯之踵", "諾亞方舟", "巴別塔", "亞特蘭提斯", "香格里拉", "伊甸園", "地獄", "天堂", "平行時空", "蟲洞", "外星人", "飛碟", "星系", "星雲", "超新星", "彗星", "流星", "日蝕", "月蝕", "極光", "颱風", "龍捲風", "海嘯", "地震", "雪崩", "乾旱", "洪水", "雷電", "迷霧", "露水", "霜", "雹", "季風", "洋流", "潮汐", "珊瑚礁", "紅樹林", "濕地", "沼澤", "草原", "苔原", "荒漠", "綠洲", "島嶼", "半島", "海灣", "海峽", "地峽", "高原", "盆地", "丘陵", "山脈", "峽谷", "洞穴", "鐘乳石", "溫泉", "間歇泉", "礦坑", "採石場", "油田", "風力發電", "太陽能板", "核電廠", "水壩", "碼頭", "倉庫", "工廠", "實驗室", "辦公室", "會議室", "接待處", "走廊", "樓梯間", "屋頂", "地下室", "閣樓", "陽台", "庭院", "花園", "溫室", "果園", "牧場", "農場", "穀倉", "磨坊", "鐵匠鋪", "藥局", "麵包店", "理髮廳", "洗衣店", "花店", "書店", "古董店", "玩具店", "寵物店", "珠寶店", "百貨公司", "超市", "菜市場", "夜市", "路邊攤", "餐廳", "咖啡廳", "酒吧", "夜店", "賭場", "劇院", "音樂廳", "美術館", "博物館", "科學館", "天文館", "水族館", "動物園", "植物園", "公園", "操場", "游泳池", "溜冰場", "滑雪場", "高爾夫球場", "網球場", "棒球場"
+    ];
+
+    window.addEventListener('storage', (e) => { if (e.key === 'codenames_v_max') render(); });
+
+    function getState() { const s = localStorage.getItem('codenames_v_max'); return s ? JSON.parse(s) : null; }
+    function saveState(s) { localStorage.setItem('codenames_v_max', JSON.stringify(s)); render(); }
+
+    function initNewGame() {
+        if(!confirm("確定要重開新局嗎？")) return;
+        // 從海量池子隨機抽25個
+        const shuffled = [...WORDS_POOL].sort(() => Math.random() - 0.5).slice(0, 25);
+        const first = Math.random() > 0.5 ? 'red' : 'blue';
+        const colors = [...Array(9).fill(first), ...Array(8).fill(first==='red'?'blue':'red'), ...Array(7).fill('neutral'), 'assassin'].sort(() => Math.random() - 0.5);
+
+        saveState({
+            words: shuffled, colors: colors, flipped: Array(25).fill(false),
+            currentTurn: first, gameOver: false, winner: null,
+            clueWord: "", clueNum: 0, isClueSet: false
+        });
+    }
+
+    function setClue() {
+        const state = getState();
+        const word = document.getElementById('input-word').value.trim();
+        const num = parseInt(document.getElementById('input-num').value);
+        if (!word || isNaN(num)) { alert("請輸入提示與有效數量"); return; }
+
+        state.clueWord = word;
+        state.clueNum = num + 1; 
+        state.isClueSet = true;
+        saveState(state);
+    }
+
+    function manualEndTurn() {
+        const state = getState();
+        if (!state || state.gameOver) return;
+        endTurn(state);
+    }
+
+    function endTurn(state) {
+        state.currentTurn = (state.currentTurn === 'red' ? 'blue' : 'red');
+        state.clueWord = "";
+        state.clueNum = 0;
+        state.isClueSet = false;
+        saveState(state);
+    }
+
+    function handleCardClick(i) {
+        const state = getState();
+        if (!state || state.flipped[i] || state.gameOver || !state.isClueSet) {
+            if(!state.isClueSet && state.words.length > 0) alert("請隊長先給出提示！");
+            return;
+        }
+
+        const cardColor = state.colors[i];
+        state.flipped[i] = true;
+        state.clueNum--; 
+
+        if (cardColor === 'assassin') {
+            state.gameOver = true;
+            state.winner = (state.currentTurn === 'red' ? '藍方' : '紅方');
+        } else if (cardColor !== state.currentTurn) {
+            endTurn(state);
+            return;
+        } else if (state.clueNum <= 0) {
+            endTurn(state);
+            return;
+        }
+
+        checkWin(state);
+        saveState(state);
+    }
+
+    function checkWin(state) {
+        let r=0, b=0;
+        state.colors.forEach((c, i) => { if (!state.flipped[i]) { if(c==='red')r++; if(c==='blue')b++; }});
+        if (r === 0) { state.gameOver=true; state.winner='紅方'; }
+        else if (b === 0) { state.gameOver=true; state.winner='藍方'; }
+    }
+
+    function render() {
+        const state = getState();
+        if (!state) return;
+
+        const ind = document.getElementById('turn-indicator');
+        ind.innerText = state.gameOver ? `${state.winner} 勝利！` : `${state.currentTurn==='red'?'紅方':'藍方'} 回合`;
+        ind.className = `turn-${state.currentTurn}`;
+
+        let r=0, b=0;
+        state.colors.forEach((c,i)=>{ if(!state.flipped[i]){ if(c==='red')r++; if(c==='blue')b++; }});
+        document.getElementById('red-count').innerText = r;
+        document.getElementById('blue-count').innerText = b;
+
+        const inputGrp = document.getElementById('clue-input-group');
+        const statusGrp = document.getElementById('clue-status');
+        if (state.isClueSet && !state.gameOver) {
+            inputGrp.style.display = "none";
+            statusGrp.style.display = "block";
+            document.getElementById('display-word').innerText = state.clueWord;
+            document.getElementById('display-num').innerText = state.clueNum;
+        } else {
+            inputGrp.style.display = state.gameOver ? "none" : "block";
+            statusGrp.style.display = "none";
+            document.getElementById('input-word').value = "";
+        }
+
+        const board = document.getElementById('board');
+        board.innerHTML = "";
+        state.words.forEach((word, i) => {
+            const card = document.createElement('div');
+            card.className = 'card' + (state.flipped[i] ? ` flipped ${state.colors[i]}` : '');
+            card.innerText = word;
+            card.onclick = () => handleCardClick(i);
+            board.appendChild(card);
+        });
+    }
+
+    function openMasterView() {
+        const state = getState(); if(!state) return;
+        const mb = document.getElementById('masterBoard');
+        mb.innerHTML = "";
+        state.words.forEach((word, i) => {
+            const card = document.createElement('div');
+            card.className = `card ${state.colors[i]}`;
+            card.innerText = word;
+            if (state.flipped[i]) card.style.opacity = "0.15";
+            mb.appendChild(card);
+        });
+        document.getElementById('masterOverlay').style.display = 'flex';
+    }
+
+    function closeMasterView() { document.getElementById('masterOverlay').style.display = 'none'; render(); }
+
+    // 初次載入渲染
+    render();
+</script>
+</body>
+</html>

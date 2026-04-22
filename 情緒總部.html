@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+
+<html lang="zh-Hant">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>情緒總部 - 核心記憶球 v2.0</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+
+    <style>
+
+        body { 
+
+            margin: 0; padding: 0; overflow: hidden; 
+
+            background-color: #02020a; 
+
+            font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; 
+
+            user-select: none; 
+
+        }
+
+        
+
+        /* 控制面板 */
+
+        #control-panel { 
+
+            position: absolute; top: 20px; left: 20px; z-index: 100; 
+
+            background: rgba(15, 15, 30, 0.8); padding: 20px; border-radius: 15px; 
+
+            width: 280px; backdrop-filter: blur(20px); color: white; 
+
+            border: 1px solid rgba(255,255,255,0.1);
+
+            box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+
+        }
+
+        .input-group { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
+
+        label { font-size: 13px; font-weight: bold; letter-spacing: 1px; }
+
+        input[type="color"] { width: 45px; height: 45px; border: none; cursor: pointer; background: none; border-radius: 50%; }
+
+        input[type="number"] { width: 60px; background: rgba(0,0,0,0.5); border: 1px solid #444; color: #fff; padding: 5px; border-radius: 6px; text-align: center; }
+
+        textarea { 
+
+            width: 100%; height: 80px; border-radius: 10px; border: 1px solid #333; 
+
+            background: rgba(0,0,0,0.3); color: white; padding: 12px; box-sizing: border-box; 
+
+            margin: 10px 0; outline: none; resize: none; font-size: 14px; transition: border 0.3s;
+
+        }
+
+        textarea:focus { border-color: #00d2ff; }
+
+        button { 
+
+            width: 100%; padding: 14px; 
+
+            background: linear-gradient(135deg, #00d2ff, #3a7bd5); 
+
+            color: white; border: none; border-radius: 10px; 
+
+            font-weight: bold; cursor: pointer; transition: 0.2s;
+
+        }
+
+        button:hover { filter: brightness(1.1); transform: translateY(-2px); }
+
+        button:active { transform: translateY(0); }
+
+
+
+        /* ✨ 懸停預覽框 ✨ */
+
+        #tooltip {
+
+            position: fixed;
+
+            pointer-events: none;
+
+            background: rgba(255, 255, 255, 0.98);
+
+            color: #050510;
+
+            padding: 12px 18px;
+
+            border-radius: 15px;
+
+            font-size: 15px;
+
+            font-weight: 500;
+
+            max-width: 240px;
+
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+
+            display: none;
+
+            z-index: 1000;
+
+            word-wrap: break-word;
+
+            line-height: 1.6;
+
+            opacity: 0;
+
+            transition: opacity 0.2s, transform 0.2s;
+
+            transform: translate(10px, 10px);
+
+        }
+
+        #tooltip.active { opacity: 1; display: block; }
+
+    </style>
+
+</head>
+
+<body>
+
+
+
+<div id="control-panel">
+
+    <div class="input-group">
+
+        <label>心情顏色 A</label>
+
+        <input type="color" id="moodColor1" value="#FFD700">
+
+        <input type="number" id="ratio1" value="50">%
+
+    </div>
+
+    <div class="input-group">
+
+        <label>心情顏色 B</label>
+
+        <input type="color" id="moodColor2" value="#00F2FF">
+
+        <input type="number" id="ratio2" value="50">%
+
+    </div>
+
+    <textarea id="diary" placeholder="此刻的心情..."></textarea>
+
+    <button id="sendBtn">封存核心記憶</button>
+
+</div>
+
+
+
+<div id="tooltip"></div>
+
+
+
+<script>
+
+    const { Engine, Render, Runner, Bodies, Composite, MouseConstraint, Mouse, Events, Vector, Query } = Matter;
+
+
+
+    const engine = Engine.create();
+
+    const world = engine.world;
+
+    const runner = Runner.create();
+
+    const render = Render.create({
+
+        element: document.body,
+
+        engine: engine,
+
+        options: { 
+
+            width: window.innerWidth, 
+
+            height: window.innerHeight, 
+
+            wireframes: false, 
+
+            background: 'transparent' 
+
+        }
+
+    });
+
+
+
+    Render.run(render);
+
+    Runner.run(runner, engine);
+
+
+
+    function createBoundaries() {
+
+        Composite.clear(world, true);
+
+        const t = 100, w = window.innerWidth, h = window.innerHeight;
+
+        const walls = [
+
+            Bodies.rectangle(w/2, h+t/2, w, t, { isStatic: true, friction: 0.5 }),
+
+            Bodies.rectangle(w/2, -t/2, w, t, { isStatic: true }),
+
+            Bodies.rectangle(-t/2, h/2, t, h, { isStatic: true }),
+
+            Bodies.rectangle(w+t/2, h/2, t, h, { isStatic: true })
+
+        ];
+
+        Composite.add(world, walls);
+
+    }
+
+    createBoundaries();
+
+    window.onresize = createBoundaries;
+
+
+
+    const mouse = Mouse.create(render.canvas);
+
+    const mouseConstraint = MouseConstraint.create(engine, {
+
+        mouse: mouse,
+
+        constraint: { stiffness: 0.1, render: { visible: false } }
+
+    });
+
+    Composite.add(world, mouseConstraint);
+
+
+
+    const r1 = document.getElementById('ratio1'), r2 = document.getElementById('ratio2');
+
+    r1.oninput = () => r2.value = 100 - r1.value;
+
+    r2.oninput = () => r1.value = 100 - r2.value;
+
+
+
+    const tooltip = document.getElementById('tooltip');
+
+    
+
+    // 懸停與滑鼠樣式邏輯
+
+    Events.on(runner, "afterUpdate", () => {
+
+        const bodies = Composite.allBodies(world).filter(b => !b.isStatic);
+
+        const found = Query.point(bodies, mouse.position)[0];
+
+
+
+        if (found && found.customData) {
+
+            tooltip.innerText = found.customData.text;
+
+            tooltip.style.display = 'block';
+
+            setTimeout(() => tooltip.classList.add('active'), 10);
+
+            tooltip.style.left = (mouse.position.x + 15) + 'px';
+
+            tooltip.style.top = (mouse.position.y + 15) + 'px';
+
+            document.body.style.cursor = 'grab';
+
+        } else {
+
+            tooltip.classList.remove('active');
+
+            setTimeout(() => { if(!tooltip.classList.contains('active')) tooltip.style.display = 'none'; }, 200);
+
+            document.body.style.cursor = 'default';
+
+        }
+
+    });
+
+
+
+    // 🎨 自定義渲染邏輯
+
+    function drawAdvancedWater(ctx, body, time) {
+
+        const { x, y } = body.position;
+
+        const r = body.circleRadius;
+
+        const { c1, c2, weightB, seed } = body.customData;
+
+        const speed = Vector.magnitude(body.velocity);
+
+        const angle = body.angle;
+
+
+
+        ctx.save();
+
+        ctx.translate(x, y);
+
+
+
+        // 1. 球體容器外殼感
+
+        ctx.beginPath();
+
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+
+        ctx.lineWidth = 2;
+
+        ctx.stroke();
+
+
+
+        ctx.globalCompositeOperation = 'screen';
+
+
+
+        const configs = [
+
+            { color: c1, weight: 1 - weightB, dir: -1 },
+
+            { color: c2, weight: weightB, dir: 1 }
+
+        ];
+
+
+
+        configs.forEach(cfg => {
+
+            if (cfg.weight <= 0) return;
+
+            const liquidOffset = r * 0.42;
+
+            const targetX = Math.cos(angle + (cfg.dir * Math.PI/2)) * liquidOffset + (body.velocity.x * -0.5);
+
+            const targetY = Math.sin(angle + (cfg.dir * Math.PI/2)) * liquidOffset + (body.velocity.y * -0.5);
+
+
+
+            ctx.save();
+
+            ctx.translate(targetX, targetY);
+
+
+
+            for (let i = 0; i < 3; i++) {
+
+                ctx.save();
+
+                ctx.rotate(time * (0.5 + i * 0.1) + seed);
+
+                const stretch = 1.2 + Math.sin(time * 1.5 + i) * 0.1;
+
+                ctx.scale(stretch, 1/stretch);
+
+
+
+                const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 1.8);
+
+                grad.addColorStop(0, cfg.color);
+
+                grad.addColorStop(0.2, cfg.color); 
+
+                grad.addColorStop(0.5, cfg.color + "66");
+
+                grad.addColorStop(0.8, "transparent");
+
+
+
+                ctx.globalAlpha = 0.6 * (cfg.weight + 0.3);
+
+                ctx.fillStyle = grad;
+
+                ctx.beginPath();
+
+                ctx.arc(0, 0, r * 1.8, 0, Math.PI * 2);
+
+                ctx.fill();
+
+                ctx.restore();
+
+            }
+
+            ctx.restore();
+
+        });
+
+
+
+        // 2. 增加一層動態水光
+
+        ctx.globalCompositeOperation = 'lighter';
+
+        const waterGlow = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 0.8);
+
+        waterGlow.addColorStop(0, "rgba(255, 255, 255, 0.1)");
+
+        waterGlow.addColorStop(1, "transparent");
+
+        ctx.fillStyle = waterGlow;
+
+        ctx.fill();
+
+
+
+        // 3. 頂部玻璃反光 (固定在左上方)
+
+        ctx.globalCompositeOperation = 'source-over';
+
+        ctx.beginPath();
+
+        ctx.ellipse(-r*0.35, -r*0.4, r*0.35, r*0.18, Math.PI/4, 0, Math.PI*2);
+
+        ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
+
+        ctx.fill();
+
+
+
+        ctx.restore();
+
+    }
+
+
+
+    Events.on(render, 'afterRender', (event) => {
+
+        const ctx = render.context;
+
+        const time = event.timestamp / 1000;
+
+        Composite.allBodies(world).forEach(body => {
+
+            if (!body.isStatic && body.customData) {
+
+                drawAdvancedWater(ctx, body, time);
+
+            }
+
+        });
+
+    });
+
+
+
+    document.getElementById('sendBtn').onclick = () => {
+
+        const diaryText = document.getElementById('diary').value;
+
+        if (!diaryText.trim()) return;
+
+
+
+        const size = Math.min(65, 30 + diaryText.length * 1.5);
+
+        const ball = Bodies.circle(window.innerWidth/2, 100, size, {
+
+            restitution: 0.6,
+
+            frictionAir: 0.02,
+
+            friction: 0.1,
+
+            render: { visible: false }
+
+        });
+
+
+
+        ball.customData = {
+
+            text: diaryText,
+
+            c1: document.getElementById('moodColor1').value,
+
+            c2: document.getElementById('moodColor2').value,
+
+            weightB: parseInt(r2.value) / 100,
+
+            seed: Math.random() * 50
+
+        };
+
+
+
+        Composite.add(world, ball);
+
+        document.getElementById('diary').value = "";
+
+    };
+
+</script>
+
+</body>
+
+</html>
